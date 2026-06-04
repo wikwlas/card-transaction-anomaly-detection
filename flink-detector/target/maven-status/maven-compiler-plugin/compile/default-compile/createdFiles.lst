@@ -1,3 +1,5 @@
-com/fraud/detector/FraudDetector$AnomalyDetectionEngine.class
 com/fraud/detector/FraudDetector.class
+com/fraud/detector/FraudDetector$AnomalyDetectionEngine.class
+com/fraud/detector/MongoIngestionJob.class
+com/fraud/detector/MongoIngestionJob$MongoSinkFunction.class
 com/fraud/detector/FraudDetector$1.class

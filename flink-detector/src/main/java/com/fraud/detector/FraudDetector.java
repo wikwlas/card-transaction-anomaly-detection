@@ -72,21 +72,23 @@ public class FraudDetector {
 
         @Override
         public void processElement(String value, Context ctx, Collector<String> out) throws Exception {
-            System.out.println("[FLINK INCOMING] Odebrano transakcje: " + value);
-            
             JsonNode currentTx = mapper.readTree(value);
             
             JsonNode amountNode = currentTx.path("amount");
             JsonNode creditLimitNode = currentTx.path("credit_limit");
-            JsonNode gpsLatNode = currentTx.path("gps_lat");
-            JsonNode gpsLonNode = currentTx.path("gps_lon");
+            // FIX: Dig deeper into the nested "gps" object
+            JsonNode gpsLatNode = currentTx.path("gps").path("lat");
+            JsonNode gpsLonNode = currentTx.path("gps").path("lon");
             JsonNode timestampNode = currentTx.path("timestamp");
 
             if (amountNode.isMissingNode() || creditLimitNode.isMissingNode() || 
                 gpsLatNode.isMissingNode() || gpsLonNode.isMissingNode() || timestampNode.isMissingNode()) {
-                System.err.println("[FLINK OSTRZEŻENIE] Pominięto rekord! Brakuje wymaganych pól strukturalnych.");
+                System.err.println("[FLINK WARNING] Record skipped! Missing required structural fields.");
                 return; 
             }
+
+            // If validation passes, log it as a successfully received record
+            System.out.println("[FLINK INCOMING] Received transaction: " + value);
 
             double amount = amountNode.asDouble();
             double creditLimit = creditLimitNode.asDouble();
@@ -96,21 +98,22 @@ public class FraudDetector {
 
             if (amount >= creditLimit * 0.90) {
                 out.collect(createAlertJson(currentTx, "LIMIT_EXCEEDED_ANOMALY", 
-                        String.format("Kwota %s PLN przekracza 90%% limitu karty (%s PLN)", amount, creditLimit)));
+                        String.format("Amount %s PLN exceeds 90%% of the card limit (%s PLN)", amount, creditLimit)));
             }
 
             String lastTxStr = lastTransactionState.value();
             if (lastTxStr != null) {
                 JsonNode lastTx = mapper.readTree(lastTxStr);
                 
-                double lastLat = lastTx.path("gps_lat").asDouble();
-                double lastLon = lastTx.path("gps_lon").asDouble();
+                // FIX: Also extract coordinates from the nested "gps" object for historical data
+                double lastLat = lastTx.path("gps").path("lat").asDouble();
+                double lastLon = lastTx.path("gps").path("lon").asDouble();
                 long lastTimestamp = lastTx.path("timestamp").asLong();
 
                 long timeDiffSec = currentTimestamp - lastTimestamp;
                 if (timeDiffSec >= 0 && timeDiffSec < 2) {
                     out.collect(createAlertJson(currentTx, "FREQUENCY_ANOMALY", 
-                            String.format("Wykryto serie szybkich płatności. Odstęp: %s sek.", timeDiffSec)));
+                            String.format("Detected a series of rapid payments. Interval: %s sec.", timeDiffSec)));
                 }
 
                 double distance = haversine(lastLat, lastLon, currentLat, currentLon);
@@ -120,7 +123,7 @@ public class FraudDetector {
                     double speed = distance / timeDiffHours;
                     if (speed > 800.0) {
                         out.collect(createAlertJson(currentTx, "LOCATION_ANOMALY", 
-                                String.format("Niemożliwa podróż! Karta pokonała %s km z prędkością %.2f km/h", (int)distance, speed)));
+                                String.format("Impossible travel! Card covered %s km at a speed of %.2f km/h", (int)distance, speed)));
                     }
                 }
             }

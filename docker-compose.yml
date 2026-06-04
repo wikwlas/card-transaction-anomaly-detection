@@ -29,7 +29,6 @@ services:
     volumes:
       - mongo_data:/data/db
 
-  # --- NOWE KOMPONENTY: APACHE FLINK ---
   jobmanager:
     image: flink:1.18.1-scala_2.12
     container_name: flink_jobmanager
@@ -53,5 +52,13 @@ services:
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 2
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fraud_grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+      
 volumes:
   mongo_data:
