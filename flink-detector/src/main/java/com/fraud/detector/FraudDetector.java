@@ -23,7 +23,6 @@ public class FraudDetector {
     public static void main(String[] args) throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // 1. Definicja źródła - Kafka Topic: transactions
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setBootstrapServers("kafka:29092")
                 .setTopics("transactions")
@@ -32,7 +31,6 @@ public class FraudDetector {
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
-        // 2. Definicja ujścia (Sink) - Kafka Topic: alerts
         KafkaSink<String> sink = KafkaSink.<String>builder()
                 .setBootstrapServers("kafka:29092")
                 .setRecordSerializer(
@@ -42,7 +40,6 @@ public class FraudDetector {
                                 .build()
                 ).build();
 
-        // 3. Strumień danych
         DataStream<String> stream = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Kafka Source");
 
         stream
@@ -60,7 +57,6 @@ public class FraudDetector {
         env.execute("Flink Fraud Detection Engine");
     }
 
-    // --- BEZPIECZNA LOGIKA DETEKCJI ANOMALII ---
     public static class AnomalyDetectionEngine extends KeyedProcessFunction<String, String, String> {
         private transient ValueState<String> lastTransactionState;
         private final ObjectMapper mapper = new ObjectMapper();
@@ -76,19 +72,16 @@ public class FraudDetector {
 
         @Override
         public void processElement(String value, Context ctx, Collector<String> out) throws Exception {
-            // WYŚWIETLAMY REKORD W KONSOLI (Dla ułatwienia debugowania)
             System.out.println("[FLINK INCOMING] Odebrano transakcje: " + value);
             
             JsonNode currentTx = mapper.readTree(value);
             
-            // Bezpieczne sprawdzanie węzłów (nie rzuca NullPointerException)
             JsonNode amountNode = currentTx.path("amount");
             JsonNode creditLimitNode = currentTx.path("credit_limit");
             JsonNode gpsLatNode = currentTx.path("gps_lat");
             JsonNode gpsLonNode = currentTx.path("gps_lon");
             JsonNode timestampNode = currentTx.path("timestamp");
 
-            // WALIDACJA: Jeśli brakuje kluczowych pól, logujemy to i pomijamy rekord
             if (amountNode.isMissingNode() || creditLimitNode.isMissingNode() || 
                 gpsLatNode.isMissingNode() || gpsLonNode.isMissingNode() || timestampNode.isMissingNode()) {
                 System.err.println("[FLINK OSTRZEŻENIE] Pominięto rekord! Brakuje wymaganych pól strukturalnych.");
@@ -101,13 +94,11 @@ public class FraudDetector {
             double currentLon = gpsLonNode.asDouble();
             long currentTimestamp = timestampNode.asLong();
 
-            // ANOMALIA 1: Kwota bliska limitu (>= 90% limitu)
             if (amount >= creditLimit * 0.90) {
                 out.collect(createAlertJson(currentTx, "LIMIT_EXCEEDED_ANOMALY", 
                         String.format("Kwota %s PLN przekracza 90%% limitu karty (%s PLN)", amount, creditLimit)));
             }
 
-            // Sprawdzenie stanu dla anomalii zależnych od historii
             String lastTxStr = lastTransactionState.value();
             if (lastTxStr != null) {
                 JsonNode lastTx = mapper.readTree(lastTxStr);
@@ -116,14 +107,12 @@ public class FraudDetector {
                 double lastLon = lastTx.path("gps_lon").asDouble();
                 long lastTimestamp = lastTx.path("timestamp").asLong();
 
-                // ANOMALIA 2: Częstotliwość (Carding)
                 long timeDiffSec = currentTimestamp - lastTimestamp;
                 if (timeDiffSec >= 0 && timeDiffSec < 2) {
                     out.collect(createAlertJson(currentTx, "FREQUENCY_ANOMALY", 
                             String.format("Wykryto serie szybkich płatności. Odstęp: %s sek.", timeDiffSec)));
                 }
 
-                // ANOMALIA 3: Lokalizacja (Impossible Travel)
                 double distance = haversine(lastLat, lastLon, currentLat, currentLon);
                 double timeDiffHours = (currentTimestamp - lastTimestamp) / 3600.0;
                 
@@ -136,7 +125,6 @@ public class FraudDetector {
                 }
             }
 
-            // Aktualizacja pamięci podręcznej (State) Flinka najnowszą transakcją
             lastTransactionState.update(value);
         }
 
