@@ -1,0 +1,36 @@
+# ========================
+# 1. Środowiska wirtualne (uv, venv, itp.)
+# ========================
+.venv/
+venv/
+env/
+
+# ========================
+# 2. Python i pliki tymczasowe
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# ========================
+# 3. Zmienne środowiskowe i sekrety
+# ========================
+.env
+.env.local
+*.pem
+
+# ========================
+# 4. Edytory kodu i IDE
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ========================
+# 5. Pliki systemowe (Mac / Windows)
+# ========================
+.DS_Store
+Thumbs.db
