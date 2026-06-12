@@ -9,3 +9,4 @@ Ten projekt używa [uv](https://github.com/astral-sh/uv) do ultra-szybkiego zarz
    uv sync
 
 
+docker exec -it fraud_kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic transactions --from-beginning

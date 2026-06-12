@@ -52,9 +52,9 @@ services:
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 2
 
-  grafana:
-    image: grafana/grafana:latest
-    container_name: fraud_grafana
+  metabase:
+    image: metabase/metabase:latest
+    container_name: fraud_metabase
     ports:
       - "3000:3000"
     depends_on:
