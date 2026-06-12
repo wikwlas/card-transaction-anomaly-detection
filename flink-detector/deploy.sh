@@ -28,6 +28,23 @@ fi
 
 echo "Using JAR file: $JAR_FILE"
 
+# Cancel currently running Flink jobs
+echo "Checking for currently running Flink jobs..."
+# Get a list of running jobs, filter for lines containing "RUNNING", and extract the 4th column (Job ID)
+RUNNING_JOBS=$(docker exec flink_jobmanager flink list -r 2>/dev/null | grep "RUNNING" | awk '{print $4}')
+
+if [ -z "$RUNNING_JOBS" ]; then
+    echo "No running jobs to cancel."
+else
+    for JOB_ID in $RUNNING_JOBS; do
+        echo "Cancelling Flink job: $JOB_ID"
+        docker exec flink_jobmanager flink cancel "$JOB_ID"
+    done
+    echo "All previous jobs have been cancelled."
+    # Give Flink a brief moment to free up the task slots
+    sleep 2
+fi
+
 # Copy the JAR file to the running JobManager container
 echo "Copying the file to the flink_jobmanager container..."
 docker cp "$JAR_FILE" flink_jobmanager:/tmp/fraud-jobs.jar

@@ -82,21 +82,38 @@ public class MongoIngestionJob {
             Document query = new Document("_id", txId);
 
             if (!isAlertStream) {
-                // Normal transaction stream -> Save details and set is_fraud to false
-                Document update = new Document("$set", new Document()
-                        .append("card_id", node.path("card_id").asText())
-                        .append("amount", node.path("amount").asDouble())
-                        .append("timestamp", node.path("timestamp").asLong())
-                        .append("is_fraud", false));
+                // Normal transaction stream -> Extract ALL fields
+                Document setFields = new Document()
+                        .append("card_id", node.path("card_id").asText("UNKNOWN"))
+                        // Added UserID extraction
+                        .append("user_id", node.path("user_id").asText("UNKNOWN"))
+                        .append("amount", node.path("amount").asDouble(0.0))
+                        .append("timestamp", node.path("timestamp").asLong(0L))
+                        // Added credit_limit
+                        .append("credit_limit", node.path("credit_limit").asDouble(0.0));
+
+                // Added safe extraction of nested GPS coordinates
+                if (node.has("gps") && !node.path("gps").isNull()) {
+                    setFields.append("gps", new Document()
+                            .append("lat", node.path("gps").path("lat").asDouble(0.0))
+                            .append("lon", node.path("gps").path("lon").asDouble(0.0)));
+                }
+
+                // $set updates the data fields. 
+                // $setOnInsert ONLY sets is_fraud to false if the document is completely new.
+                // This prevents overwriting an alert if the alert arrived a millisecond earlier.
+                Document update = new Document("$set", setFields)
+                        .append("$setOnInsert", new Document("is_fraud", false));
                 
                 collection.updateOne(query, update, new UpdateOptions().upsert(true));
-                System.out.println("[MONGO] Saved transaction: " + txId);
+                System.out.println("[MONGO] Saved full transaction: " + txId);
+                
             } else {
-                // Alert stream -> Update the existing transaction and flag it as fraud
+                // Alert stream -> Update the existing transaction with fraud details
                 Document update = new Document("$set", new Document()
                         .append("is_fraud", true)
-                        .append("anomaly_type", node.path("anomaly_type").asText())
-                        .append("details", node.path("details").asText()));
+                        .append("anomaly_type", node.path("anomaly_type").asText("UNKNOWN"))
+                        .append("details", node.path("details").asText("UNKNOWN")));
 
                 collection.updateOne(query, update, new UpdateOptions().upsert(true));
                 System.out.println("[MONGO ALERT!!!] Flagged transaction as fraud: " + txId);

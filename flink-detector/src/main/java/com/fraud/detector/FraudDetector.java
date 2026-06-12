@@ -133,6 +133,7 @@ public class FraudDetector {
 
         private String createAlertJson(JsonNode tx, String type, String details) throws Exception {
             ObjectNode alert = mapper.createObjectNode();
+            alert.put("transaction_id", tx.path("transaction_id").asText("UNKNOWN"));
             alert.put("card_id", tx.path("card_id").asText("UNKNOWN"));
             alert.put("anomaly_type", type);
             alert.put("details", details);
