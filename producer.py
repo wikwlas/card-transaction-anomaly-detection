@@ -22,17 +22,46 @@ for i in range(1, 10001):
         "credit_limit": credit_limit
     })
 
+def get_gaussian_location_poland():
+    """
+    Generates a GPS coordinate using a 2D Gaussian (Normal) distribution.
+    The density peaks at the geographic center of Poland and fades out towards borders.
+    """
+    # 1. Center of the distribution (approx. geometry center of Poland)
+    center_lat = 52.20
+    center_lon = 19.40
+    
+    # 2. Standard deviation (spread). 
+    # In a normal distribution, ~99.7% of data falls within 3 standard deviations (3*sigma).
+    # Poland spans roughly 5 degrees in lat and 10 degrees in lon.
+    sigma_lat = 0.85  # 3 * 0.85 = ~2.5 degrees north and south from center
+    sigma_lon = 1.40  # 3 * 1.40 = ~4.2 degrees east and west from center
+    
+    # Generate coordinates based on the Gaussian bell curve
+    lat = round(random.gauss(center_lat, sigma_lat), 4)
+    lon = round(random.gauss(center_lon, sigma_lon), 4)
+    
+    return lat, lon
+
 def generate_normal_data(card):
-    """Generates a valid, standard transaction within Poland with a new unique ID."""
+    """Generates a valid, standard transaction using non-uniform distributions for both amounts and space."""
+    
+    # Gaussian distribution for transaction amounts (already non-uniform)
+    amount = random.gauss(60.0, 25.0)
+    final_amount = max(2.0, round(amount, 2))
+
+    # NEW: Gaussian distribution for spatial data (No more rectangle!)
+    lat, lon = get_gaussian_location_poland()
+
     return {
-        "transaction_id": str(uuid.uuid4()),  # FIX: Unique ID generated separately for EACH transaction
+        "transaction_id": str(uuid.uuid4()),
         "card_id": card["card_id"],
         "user_id": card["user_id"],
         "gps": {
-            "lat": round(random.uniform(50.0, 54.0), 4),
-            "lon": round(random.uniform(14.0, 24.0), 4)
+            "lat": lat,
+            "lon": lon
         },
-        "amount": round(random.uniform(10.0, 300.0), 2),
+        "amount": final_amount,
         "credit_limit": card["credit_limit"],
         "timestamp": int(time.time())
     }
