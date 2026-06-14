@@ -39,14 +39,27 @@ uv sync
 ```
 
 ### Krok 3: Wdrożenie aplikacji Flink (Deploy)
-Skrypt `deploy.sh` buduje aplikację Javową w kontenerze, przygotowuje Kafkę, anuluje stare procesy i uruchamia nową logikę analityczną:
+
+Skrypt `deploy.sh` buduje aplikację Javową w kontenerze, przygotowuje Kafkę, anuluje stare procesy i uruchamia nową logikę analityczną. 
+
+Skrypt przyjmuje dwa opcjonalne argumenty:
+1. **TO_COMPILE** (domyślnie: `true`) – decyduje, czy projekt Java ma zostać skompilowany przez Maven.
+2. **DELETE_MONGO** (domyślnie: `false`) – decyduje, czy wyczyścić istniejące transakcje w bazie MongoDB przed startem.
+
+**Przykłady użycia:**
 
 ```bash
+# Nadanie uprawnień (uruchom tylko raz)
 chmod +x deploy.sh
-./deploy.sh
-```
 
-*Działające procesy możesz podejrzeć w panelu: http://localhost:8081*
+# Opcja 1: Pełny build, ZACHOWUJE stare dane w bazie (Domyślne)
+./deploy.sh
+
+# Opcja 2: Szybki restart (bez budowania Javy), CZYŚCI bazę danych
+./deploy.sh false true
+
+# Opcja 3: Pełny build Javy i CZYSZCZENIE bazy danych
+./deploy.sh true true
 
 ### Krok 4: Uruchomienie strumienia danych
 W nowym oknie terminala uruchom generator symulujący transakcje i zachowania oszustów:
