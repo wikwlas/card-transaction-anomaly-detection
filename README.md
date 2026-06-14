@@ -63,13 +63,13 @@ uv run producer.py
 Sprawdzenie zwykłych transakcji:
 
 ```bash
-docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic transactions --from-beginning
+docker exec fraud_kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic transactions --from-beginning
 ```
 
 Sprawdzenie wygenerowanych alarmów:
 
 ```bash
-docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic alerts --from-beginning
+docker exec fraud_kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic alerts --from-beginning
 ```
 
 ### 2. Sprawdzenie zapisu (MongoDB)
