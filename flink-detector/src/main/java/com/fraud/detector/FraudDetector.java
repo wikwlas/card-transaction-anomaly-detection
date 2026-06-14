@@ -10,7 +10,6 @@ import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
-import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
@@ -18,6 +17,10 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.ObjectNode;
+
+// New imports for Time handling
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 public class FraudDetector {
     public static void main(String[] args) throws Exception {
@@ -43,13 +46,10 @@ public class FraudDetector {
         DataStream<String> stream = env.fromSource(source, WatermarkStrategy.noWatermarks(), "Kafka Source");
 
         stream
-            .keyBy(new KeySelector<String, String>() {
-                @Override
-                public String getKey(String jsonStr) throws Exception {
-                    ObjectMapper mapper = new ObjectMapper();
-                    JsonNode node = mapper.readTree(jsonStr);
-                    return node.path("card_id").asText("UNKNOWN");
-                }
+            .keyBy(jsonStr -> {
+                try {
+                    return new ObjectMapper().readTree(jsonStr).path("card_id").asText("UNKNOWN");
+                } catch (Exception e) { return "UNKNOWN"; }
             })
             .process(new AnomalyDetectionEngine())
             .sinkTo(sink);
@@ -74,56 +74,51 @@ public class FraudDetector {
         public void processElement(String value, Context ctx, Collector<String> out) throws Exception {
             JsonNode currentTx = mapper.readTree(value);
             
-            JsonNode amountNode = currentTx.path("amount");
-            JsonNode creditLimitNode = currentTx.path("credit_limit");
-            // FIX: Dig deeper into the nested "gps" object
-            JsonNode gpsLatNode = currentTx.path("gps").path("lat");
-            JsonNode gpsLonNode = currentTx.path("gps").path("lon");
-            JsonNode timestampNode = currentTx.path("timestamp");
+            // Extracting fields
+            double amount = currentTx.path("amount").asDouble();
+            double creditLimit = currentTx.path("credit_limit").asDouble(5000.0); // Default if missing
+            double currentLat = currentTx.path("gps").path("lat").asDouble();
+            double currentLon = currentTx.path("gps").path("lon").asDouble();
+            long currentTimestamp = currentTx.path("timestamp").asLong();
 
-            if (amountNode.isMissingNode() || creditLimitNode.isMissingNode() || 
-                gpsLatNode.isMissingNode() || gpsLonNode.isMissingNode() || timestampNode.isMissingNode()) {
-                System.err.println("[FLINK WARNING] Record skipped! Missing required structural fields.");
-                return; 
-            }
-
-            // If validation passes, log it as a successfully received record
-            System.out.println("[FLINK INCOMING] Received transaction: " + value);
-
-            double amount = amountNode.asDouble();
-            double creditLimit = creditLimitNode.asDouble();
-            double currentLat = gpsLatNode.asDouble();
-            double currentLon = gpsLonNode.asDouble();
-            long currentTimestamp = timestampNode.asLong();
-
+            // 1. LIMIT EXCEEDED ANOMALY
             if (amount >= creditLimit * 0.90) {
                 out.collect(createAlertJson(currentTx, "LIMIT_EXCEEDED_ANOMALY", 
-                        String.format("Amount %s PLN exceeds 90%% of the card limit (%s PLN)", amount, creditLimit)));
+                        String.format("Amount %.2f PLN is near credit limit.", amount)));
             }
 
+            // 2. NIGHT OWL ANOMALY (01:00 - 04:00 UTC)
+            int hour = Instant.ofEpochSecond(currentTimestamp).atZone(ZoneOffset.UTC).getHour();
+            if (hour >= 1 && hour <= 4) {
+                out.collect(createAlertJson(currentTx, "NIGHT_OWL_ANOMALY", 
+                        "Transaction detected during suspicious night hours."));
+            }
+
+            // State management for relative anomalies
             String lastTxStr = lastTransactionState.value();
             if (lastTxStr != null) {
                 JsonNode lastTx = mapper.readTree(lastTxStr);
                 
-                // FIX: Also extract coordinates from the nested "gps" object for historical data
                 double lastLat = lastTx.path("gps").path("lat").asDouble();
                 double lastLon = lastTx.path("gps").path("lon").asDouble();
                 long lastTimestamp = lastTx.path("timestamp").asLong();
 
+                // 3. FREQUENCY ANOMALY
                 long timeDiffSec = currentTimestamp - lastTimestamp;
                 if (timeDiffSec >= 0 && timeDiffSec < 2) {
                     out.collect(createAlertJson(currentTx, "FREQUENCY_ANOMALY", 
-                            String.format("Detected a series of rapid payments. Interval: %s sec.", timeDiffSec)));
+                            "Rapid payment burst detected."));
                 }
 
+                // 4. LOCATION ANOMALY (Impossible Travel)
                 double distance = haversine(lastLat, lastLon, currentLat, currentLon);
                 double timeDiffHours = (currentTimestamp - lastTimestamp) / 3600.0;
                 
                 if (timeDiffHours > 0) {
                     double speed = distance / timeDiffHours;
-                    if (speed > 800.0) {
+                    if (speed > 800.0) { // Commercial jet speed
                         out.collect(createAlertJson(currentTx, "LOCATION_ANOMALY", 
-                                String.format("Impossible travel! Card covered %s km at a speed of %.2f km/h", (int)distance, speed)));
+                                String.format("Impossible travel! Speed: %.2f km/h", speed)));
                     }
                 }
             }
@@ -133,17 +128,16 @@ public class FraudDetector {
 
         private String createAlertJson(JsonNode tx, String type, String details) throws Exception {
             ObjectNode alert = mapper.createObjectNode();
-            alert.put("transaction_id", tx.path("transaction_id").asText("UNKNOWN"));
-            alert.put("card_id", tx.path("card_id").asText("UNKNOWN"));
+            alert.put("transaction_id", tx.path("transaction_id").asText());
+            alert.put("card_id", tx.path("card_id").asText());
             alert.put("anomaly_type", type);
             alert.put("details", details);
             alert.put("timestamp", tx.path("timestamp").asLong());
-            alert.put("amount", tx.path("amount").asDouble());
             return mapper.writeValueAsString(alert);
         }
 
         private double haversine(double lat1, double lon1, double lat2, double lon2) {
-            double R = 6371;
+            double R = 6371; // Earth radius in km
             double dLat = Math.toRadians(lat2 - lat1);
             double dLon = Math.toRadians(lon2 - lon1);
             double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
