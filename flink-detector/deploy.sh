@@ -1,14 +1,28 @@
 #!/bin/bash
 
+# Arg 1: Compile the Java project (default: true)
 TO_COMPILE=${1:-true}
 TO_COMPILE=$(echo "$TO_COMPILE" | tr '[:upper:]' '[:lower:]')
 
+# Arg 2: Delete existing transactions in MongoDB (default: false)
+DELETE_MONGO=${2:-false}
+DELETE_MONGO=$(echo "$DELETE_MONGO" | tr '[:upper:]' '[:lower:]')
+
 echo "--- Starting Deployment & Data Generation ---"
+
+# Clear MongoDB if the flag is set to true
+if [ "$DELETE_MONGO" = "true" ]; then
+    echo "Wiping existing transactions in MongoDB..."
+    # Using deleteMany() because remove() is deprecated in modern mongosh
+    docker exec fraud_mongodb mongosh fraud_db --eval "db.transactions.deleteMany({})"
+    echo "MongoDB 'transactions' collection cleared!"
+    echo "---------------------------------------------"
+fi
 
 # Create required Kafka topics before starting Flink jobs
 echo "Ensuring Kafka topics exist..."
-docker exec kafka kafka-topics --create --if-not-exists --topic transactions --bootstrap-server localhost:9092
-docker exec kafka kafka-topics --create --if-not-exists --topic alerts --bootstrap-server localhost:9092
+docker exec fraud_kafka kafka-topics --create --if-not-exists --topic transactions --bootstrap-server localhost:9092
+docker exec fraud_kafka kafka-topics --create --if-not-exists --topic alerts --bootstrap-server localhost:9092
 
 echo "Waiting for Kafka to propagate topic metadata..."
 sleep 5
@@ -19,7 +33,7 @@ pkill -f "producer.py" 2>/dev/null
 sleep 1
 
 echo "Starting producer.py in the background..."
-(cd .. && nohup uv run producer.py > producer.log 2>&1 &)
+(cd .. && nohup env PYTHONUNBUFFERED=1 uv run producer.py > producer.log 2>&1 &)
 echo "Producer is running! (Logs are being saved to ../producer.log)"
 echo "---------------------------------------------"
 
