@@ -5,29 +5,41 @@ import random
 from confluent_kafka import Producer
 
 # --- CONFIGURATION ---
-# Using confluent-kafka for better stability and production standards
 conf = {'bootstrap.servers': 'localhost:9092'}
 PRODUCER = Producer(conf)
 TOPIC = 'transactions'
 
-# Helper function to send data to Kafka
 def send_to_kafka(key, value):
     PRODUCER.produce(
         TOPIC, 
         key=key, 
         value=json.dumps(value).encode('utf-8')
     )
-    # Serve delivery callbacks and keep the producer responsive
     PRODUCER.poll(0)
 
-# --- DATA GENERATION SETUP ---
-# Pre-generate user profiles (Home locations) to simulate geography
-USER_PROFILES = {f"USER_{i}": {
-    "lat": random.uniform(-60, 60), 
-    "lon": random.uniform(-180, 180)
-} for i in range(1, 6001)}
+# --- GEOGRAPHY: ROUGH LAND BOUNDING BOXES ---
+# Defining rough rectangular boundaries for major landmasses to avoid deep oceans
+LAND_REGIONS = [
+    {"name": "Europe", "lat": (35.0, 70.0), "lon": (-10.0, 40.0)},
+    {"name": "North America", "lat": (15.0, 70.0), "lon": (-130.0, -60.0)},
+    {"name": "South America", "lat": (-55.0, 15.0), "lon": (-80.0, -35.0)},
+    {"name": "Africa", "lat": (-35.0, 35.0), "lon": (-15.0, 50.0)},
+    {"name": "Asia", "lat": (5.0, 70.0), "lon": (40.0, 130.0)},
+    {"name": "Australia", "lat": (-40.0, -10.0), "lon": (110.0, 155.0)}
+]
 
-# Generate a pool of payment cards
+def get_random_land_gps():
+    """Picks a random continent box, then generates coordinates within it."""
+    region = random.choice(LAND_REGIONS)
+    return {
+        "lat": round(random.uniform(region["lat"][0], region["lat"][1]), 4),
+        "lon": round(random.uniform(region["lon"][0], region["lon"][1]), 4)
+    }
+
+# --- DATA GENERATION SETUP ---
+# Pre-generate user profiles with home locations strictly on rough landmasses
+USER_PROFILES = {f"USER_{i}": get_random_land_gps() for i in range(1, 6001)}
+
 print("Generating 10,000 payment cards...")
 CARDS = []
 for i in range(1, 10001):
@@ -38,20 +50,19 @@ for i in range(1, 10001):
     })
 
 def generate_gps(user_id, is_anomaly=False):
-    """Generates GPS coordinates based on user home or global random for anomalies."""
+    """Generates GPS coordinates based on user home or global land for anomalies."""
     home = USER_PROFILES[user_id]
     if is_anomaly:
-        # Jump to a random global location for anomaly simulation
-        return {"lat": round(random.uniform(-90, 90), 4), "lon": round(random.uniform(-180, 180), 4)}
+        # Jump to a random LAND location for anomaly simulation
+        return get_random_land_gps()
     else:
-        # Keep transaction close to home (simulated radius)
+        # Keep transaction close to home (simulated radius ~100km)
         return {
             "lat": round(home["lat"] + random.uniform(-1, 1), 4),
             "lon": round(home["lon"] + random.uniform(-1, 1), 4)
         }
 
 def create_tx(card, anomaly_type="NONE"):
-    """Helper to structure the transaction dictionary."""
     return {
         "transaction_id": str(uuid.uuid4()),
         "card_id": card["card_id"],
@@ -62,19 +73,17 @@ def create_tx(card, anomaly_type="NONE"):
         "anomaly_type": anomaly_type
     }
 
-print("Advanced Simulator running...")
+print("Advanced Simulator (Land-only) running...")
 
 try:
     while True:
         card = random.choice(CARDS)
         rand = random.random()
 
-        # 90% chance for a normal transaction
         if rand > 0.10: 
             tx = create_tx(card)
             send_to_kafka(card["card_id"], tx)
         
-        # 10% chance for an anomaly
         else:
             anomaly_type = random.choice(["high_amount", "impossible_travel", "night_owl", "carding"])
             
@@ -84,32 +93,26 @@ try:
                 send_to_kafka(card["card_id"], tx)
 
             elif anomaly_type == "impossible_travel":
-                # Transaction 1: Home location
                 t1 = create_tx(card)
                 send_to_kafka(card["card_id"], t1)
-                # Transaction 2: Distant location (Impossible travel)
                 t2 = create_tx(card, anomaly_type="impossible_travel")
                 send_to_kafka(card["card_id"], t2)
             
             elif anomaly_type == "night_owl":
                 tx = create_tx(card, anomaly_type="night_owl")
-                # Simulate transaction during night hours (01:00-04:00)
                 tx["timestamp"] = int(time.time()) - random.randint(10000, 20000)
                 send_to_kafka(card["card_id"], tx)
 
             elif anomaly_type == "carding":
-                # Series of rapid micro-transactions
                 for _ in range(5):
                     tx = create_tx(card, anomaly_type="carding")
                     tx["amount"] = round(random.uniform(1.0, 5.0), 2)
                     send_to_kafka(card["card_id"], tx)
                     time.sleep(0.01)
 
-        # Small delay between event iterations
         time.sleep(0.1)
 
 except KeyboardInterrupt:
     print("\nShutting down...")
 finally:
-    # Ensure all pending messages are delivered
     PRODUCER.flush()
