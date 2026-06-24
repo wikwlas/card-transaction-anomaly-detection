@@ -67,6 +67,7 @@ def create_tx(card, anomaly_type="NONE"):
         "transaction_id": str(uuid.uuid4()),
         "card_id": card["card_id"],
         "user_id": card["user_id"],
+        "credit_limit": card["credit_limit"],
         "amount": round(random.uniform(10.0, 300.0), 2),
         "gps": generate_gps(card["user_id"], is_anomaly=(anomaly_type != "NONE")),
         "timestamp": int(time.time()),
